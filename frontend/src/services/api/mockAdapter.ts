@@ -13,6 +13,42 @@ export class MockApiAdapter implements ApiAdapter {
     webhook: { enabled: false, url: '' }
   };
 
+  constructor() {
+    // Load persisted data from localStorage
+    this.loadFromStorage();
+  }
+
+  private loadFromStorage(): void {
+    try {
+      const coursesJson = localStorage.getItem('mockMonitoredCourses');
+      if (coursesJson) {
+        const parsed = JSON.parse(coursesJson);
+        // Convert date strings back to Date objects
+        this.mockMonitoredCourses = parsed.map((c: any) => ({
+          ...c,
+          createdAt: new Date(c.createdAt),
+          lastChecked: c.lastChecked ? new Date(c.lastChecked) : undefined
+        }));
+      }
+
+      const prefsJson = localStorage.getItem('mockNotificationPrefs');
+      if (prefsJson) {
+        this.mockPreferences = JSON.parse(prefsJson);
+      }
+    } catch (error) {
+      console.error('Failed to load mock data from storage:', error);
+    }
+  }
+
+  private saveToStorage(): void {
+    try {
+      localStorage.setItem('mockMonitoredCourses', JSON.stringify(this.mockMonitoredCourses));
+      localStorage.setItem('mockNotificationPrefs', JSON.stringify(this.mockPreferences));
+    } catch (error) {
+      console.error('Failed to save mock data to storage:', error);
+    }
+  }
+
   async searchCourses(term: string, subject?: string, courseNumber?: string): Promise<Course[]> {
     // Simulate API delay
     await this.delay(500);
@@ -99,6 +135,7 @@ export class MockApiAdapter implements ApiAdapter {
     };
 
     this.mockMonitoredCourses.push(newCourse);
+    this.saveToStorage(); // Persist to localStorage
     return newCourse;
   }
 
@@ -109,6 +146,7 @@ export class MockApiAdapter implements ApiAdapter {
     if (index === -1) throw new Error('Course not found');
 
     this.mockMonitoredCourses[index] = { ...this.mockMonitoredCourses[index], ...updates };
+    this.saveToStorage(); // Persist to localStorage
     return this.mockMonitoredCourses[index];
   }
 
@@ -119,6 +157,7 @@ export class MockApiAdapter implements ApiAdapter {
     if (index === -1) throw new Error('Course not found');
 
     this.mockMonitoredCourses.splice(index, 1);
+    this.saveToStorage(); // Persist to localStorage
   }
 
   async getEnrollmentHistory(courseMonitorId: string): Promise<EnrollmentSnapshot[]> {
@@ -154,6 +193,7 @@ export class MockApiAdapter implements ApiAdapter {
   async updateNotificationPreferences(preferences: NotificationPreferences): Promise<NotificationPreferences> {
     await this.delay(300);
     this.mockPreferences = preferences;
+    this.saveToStorage(); // Persist to localStorage
     return this.mockPreferences;
   }
 
