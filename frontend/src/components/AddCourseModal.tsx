@@ -5,9 +5,10 @@ import type { MonitoredCourse } from '../services/api';
 interface AddCourseModalProps {
   onClose: () => void;
   onAdd: (course: Omit<MonitoredCourse, 'id' | 'createdAt' | 'lastChecked'>) => void;
+  isSubmitting?: boolean;
 }
 
-export function AddCourseModal({ onClose, onAdd }: AddCourseModalProps) {
+export function AddCourseModal({ onClose, onAdd, isSubmitting = false }: AddCourseModalProps) {
   const [formData, setFormData] = useState({
     term: '',
     subject: '',
@@ -19,15 +20,17 @@ export function AddCourseModal({ onClose, onAdd }: AddCourseModalProps) {
     active: true
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (isSubmitting) return;
 
     const sectionsArray = formData.sections
       .split(',')
       .map(s => s.trim())
       .filter(s => s.length > 0);
 
-    onAdd({
+    await onAdd({
       term: formData.term,
       subject: formData.subject.toUpperCase(),
       courseNumber: formData.courseNumber,
@@ -168,11 +171,11 @@ export function AddCourseModal({ onClose, onAdd }: AddCourseModalProps) {
           </div>
 
           <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
-            <button type="button" onClick={onClose} style={{ flex: 1 }}>
+            <button type="button" onClick={onClose} style={{ flex: 1 }} disabled={isSubmitting}>
               Cancel
             </button>
-            <button type="submit" className="primary" style={{ flex: 1 }}>
-              Add Course
+            <button type="submit" className="primary" style={{ flex: 1 }} disabled={isSubmitting}>
+              {isSubmitting ? 'Adding...' : 'Add Course'}
             </button>
           </div>
         </form>

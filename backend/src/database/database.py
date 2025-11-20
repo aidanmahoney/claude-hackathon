@@ -48,6 +48,20 @@ class Database:
     ) -> int:
         """Add a new course monitor"""
         with self.get_session() as session:
+            # Check if monitor already exists (prevent duplicates)
+            existing_stmt = select(CourseMonitor).where(
+                CourseMonitor.term == term,
+                CourseMonitor.subject == subject,
+                CourseMonitor.course_number == course_number,
+                CourseMonitor.section_id == section_id,
+                CourseMonitor.active == True
+            )
+            existing = session.execute(existing_stmt).scalar_one_or_none()
+
+            if existing:
+                logger.warning(f"Monitor already exists for {subject} {course_number} (ID: {existing.id})")
+                return existing.id
+
             monitor = CourseMonitor(
                 term=term,
                 subject=subject,
@@ -202,6 +216,17 @@ class Database:
                 monitor.active = False
                 session.commit()
                 logger.info(f"Deactivated course monitor: {monitor_id}")
+
+    def reactivate_course_monitor(self, monitor_id: int):
+        """Reactivate a course monitor"""
+        with self.get_session() as session:
+            stmt = select(CourseMonitor).where(CourseMonitor.id == monitor_id)
+            result = session.execute(stmt)
+            monitor = result.scalar_one_or_none()
+            if monitor:
+                monitor.active = True
+                session.commit()
+                logger.info(f"Reactivated course monitor: {monitor_id}")
 
     def delete_course_monitor(self, monitor_id: int):
         """Delete a course monitor"""

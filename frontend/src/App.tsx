@@ -14,6 +14,7 @@ function App() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>('courses');
   const [refreshing, setRefreshing] = useState(false);
+  const [isAdding, setIsAdding] = useState(false);
 
   useEffect(() => {
     loadCourses();
@@ -31,12 +32,25 @@ function App() {
   };
 
   const handleAddCourse = async (course: Omit<MonitoredCourse, 'id' | 'createdAt' | 'lastChecked'>) => {
+    // Prevent double submissions
+    if (isAdding) return;
+
+    setIsAdding(true);
     try {
       const newCourse = await api.addMonitoredCourse(course);
-      setCourses([...courses, newCourse]);
-      toast.success(`Added ${course.subject} ${course.courseNumber} to monitoring`);
+
+      // Check if course already exists in state (prevent duplicates)
+      const exists = courses.some(c => c.id === newCourse.id);
+      if (!exists) {
+        setCourses([...courses, newCourse]);
+        toast.success(`Added ${course.subject} ${course.courseNumber} to monitoring`);
+      } else {
+        toast.success(`${course.subject} ${course.courseNumber} is already being monitored`);
+      }
     } catch (error) {
       toast.error('Failed to add course');
+    } finally {
+      setIsAdding(false);
     }
   };
 
@@ -252,6 +266,7 @@ function App() {
         <AddCourseModal
           onClose={() => setShowAddModal(false)}
           onAdd={handleAddCourse}
+          isSubmitting={isAdding}
         />
       )}
     </div>
