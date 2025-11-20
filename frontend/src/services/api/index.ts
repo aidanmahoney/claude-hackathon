@@ -9,7 +9,7 @@ import { RealApiAdapter } from './realAdapter';
 // CONFIGURATION - CHANGE THIS TO SWITCH BETWEEN MOCK AND REAL API
 // ==========================================
 
-const USE_MOCK_API = true; // Using mock API for development
+const USE_MOCK_API = false; // Using real backend for course monitoring
 
 // ==========================================
 // Backend API Configuration
