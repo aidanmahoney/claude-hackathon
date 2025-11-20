@@ -97,7 +97,7 @@ function App() {
       }}>
         <div style={{ maxWidth: '1280px', margin: '0 auto' }}>
           <h1 style={{ fontSize: '1.875rem', fontWeight: '700', color: '#f1f5f9', marginBottom: '0.5rem' }}>
-            UW Madison Course Enrollment Checker
+            UW Course Watch
           </h1>
           <p style={{ color: '#94a3b8', fontSize: '1rem' }}>
             Monitor course availability and get notified when seats open up
