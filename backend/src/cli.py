@@ -4,10 +4,8 @@ import asyncio
 import signal
 import sys
 import click
-from datetime import datetime
 
 from src.services.course_checker import CourseChecker
-from src.utils.logger import logger
 
 
 def get_status_icon(status: str) -> str:
@@ -40,7 +38,6 @@ def monitor():
             click.echo("\n🔍 Course monitoring started!")
             click.echo("Press Ctrl+C to stop\n")
 
-            # Set up signal handlers
             def signal_handler(sig, frame):
                 click.echo("\n\nStopping course monitoring...")
                 asyncio.create_task(checker.cleanup())
@@ -48,7 +45,6 @@ def monitor():
 
             signal.signal(signal.SIGINT, signal_handler)
 
-            # Keep running
             while True:
                 await asyncio.sleep(1)
 
@@ -75,7 +71,6 @@ def check(term: str, subject: str, number: str):
 
             enrollment_data = await checker.check_once(term, subject, number)
 
-            # Display results
             click.echo(
                 f"📚 {enrollment_data['subject']} {enrollment_data['courseNumber']}: "
                 f"{enrollment_data['courseTitle']}"

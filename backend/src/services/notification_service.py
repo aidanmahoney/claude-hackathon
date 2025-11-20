@@ -17,12 +17,7 @@ class NotificationService:
         self.settings = settings
 
     async def notify_course_available(self, course_data: Dict[str, Any]):
-        """
-        Send notifications when a course becomes available
-
-        Args:
-            course_data: Course availability data
-        """
+        """Send notifications when a course becomes available"""
         notifications = []
 
         if self.settings.email_enabled and self.settings.email_smtp_user:
@@ -73,7 +68,6 @@ class NotificationService:
         html_part = MIMEText(html_content, "html")
         message.attach(html_part)
 
-        # Send email
         with smtplib.SMTP(self.settings.email_smtp_host, self.settings.email_smtp_port) as server:
             server.starttls()
             server.login(self.settings.email_smtp_user, self.settings.email_smtp_pass)
@@ -96,7 +90,6 @@ class NotificationService:
                     <strong>Section {section['sectionId']}</strong> (Class #{section['classNumber']})<br>
                     Instructor: {section['instructor']}<br>
                     Open Seats: <strong style="color: #28a745;">{section['openSeats']}/{section['totalSeats']}</strong><br>
-                    Schedule: {self._format_schedule(section['schedule'])}
                 </li>
                 """
             sections_html += "</ul>"
@@ -109,7 +102,6 @@ class NotificationService:
                     <strong>Section {section['sectionId']}</strong> (Class #{section['classNumber']})<br>
                     Instructor: {section['instructor']}<br>
                     Waitlist: <strong style="color: #ffc107;">{section['waitlistOpen']}/{section['waitlistTotal']} open</strong><br>
-                    Schedule: {self._format_schedule(section['schedule'])}
                 </li>
                 """
             sections_html += "</ul>"
@@ -152,23 +144,6 @@ class NotificationService:
   </body>
 </html>
 """
-
-    @staticmethod
-    def _format_schedule(schedule: List[Dict[str, Any]]) -> str:
-        """Format schedule information"""
-        if not schedule:
-            return "TBA"
-
-        formatted = []
-        for s in schedule:
-            days = s.get("days", "TBA")
-            start_time = s.get("startTime", "")
-            end_time = s.get("endTime", "")
-            time_str = f"{start_time}-{end_time}" if start_time and end_time else "TBA"
-            location = s.get("location", "TBA")
-            formatted.append(f"{days} {time_str} @ {location}")
-
-        return ", ".join(formatted)
 
     async def _send_sms(self, course_data: Dict[str, Any]):
         """Send SMS notification"""
@@ -234,12 +209,7 @@ class NotificationService:
                 "sectionId": "001",
                 "classNumber": "12345",
                 "instructor": "Test Instructor",
-                "schedule": [{
-                    "days": "MWF",
-                    "startTime": "10:00",
-                    "endTime": "11:00",
-                    "location": "Computer Sciences 1240"
-                }],
+                "schedule": [],
                 "totalSeats": 30,
                 "enrolledSeats": 29,
                 "openSeats": 1,

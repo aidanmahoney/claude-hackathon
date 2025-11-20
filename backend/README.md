@@ -1,72 +1,52 @@
 # UW Madison Course Checker - Python Backend
 
-Python backend implementation for the UW Madison Course Enrollment Checker.
+Complete Python backend for monitoring UW Madison course enrollment using the **uwcourses.com API**.
 
-## Features
+## 🎯 Features
 
-- 🔄 Real-time course availability monitoring
-- 📧 Multi-channel notifications (Email, SMS, Webhooks)
-- 📊 Historical enrollment tracking
-- ⚡ Async API integration with rate limiting
-- 🗄️ SQLAlchemy database with SQLite/PostgreSQL support
-- 🖥️ CLI interface with Click
+- ✅ Real-time monitoring using `https://static.uwcourses.com/update.json`
+- ✅ Smart caching (60s TTL) to reduce API load
+- ✅ Multi-channel notifications (Email, SMS, Webhooks)
+- ✅ SQLAlchemy database with enrollment history
+- ✅ APScheduler for automated checking
+- ✅ Click CLI with 7 commands
+- ✅ Flexible data parsing for various API formats
 
-## Installation
+## 🚀 Quick Start
 
-### Prerequisites
-
-- Python 3.9 or higher
-- pip
-
-### Setup
-
-1. **Clone and navigate to backend:**
 ```bash
-cd backend
-```
-
-2. **Create virtual environment:**
-```bash
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-```
-
-3. **Install dependencies:**
-```bash
+# 1. Install dependencies
 pip install -r requirements.txt
-```
 
-4. **Configure environment:**
-```bash
+# 2. Configure environment
 cp .env.example .env
 # Edit .env with your settings
-```
 
-5. **Initialize database:**
-```bash
-python -c "from src.database.database import Database; Database().initialize()"
-```
+# 3. Test API connection
+python test_api.py
 
-## Usage
+# 4. Add a course
+python main.py add --term 1252 --subject "COMP SCI" --number 400
 
-### Command Line Interface
-
-The tool provides several commands for managing course monitoring:
-
-#### Start Monitoring
-Monitor all configured courses continuously:
-```bash
+# 5. Start monitoring
 python main.py monitor
 ```
 
-#### Check a Course Once
-Check a specific course without adding to monitors:
+## 📋 CLI Commands
+
+### Monitor Courses
+```bash
+python main.py monitor
+```
+Starts continuous monitoring of all active courses.
+
+### Check Once
 ```bash
 python main.py check --term 1252 --subject "COMP SCI" --number 400
 ```
+One-time check without adding to monitors.
 
-#### Add Course to Monitor
-Add a course to the monitoring list:
+### Add Course
 ```bash
 python main.py add \
   --term 1252 \
@@ -74,220 +54,201 @@ python main.py add \
   --number 400 \
   --section 001 \
   --interval 300 \
-  --notify-open \
-  --notify-waitlist
+  --notify-open
 ```
 
-Parameters:
-- `--term`: Term code (e.g., "1252" for Spring 2025)
-- `--subject`: Subject code (e.g., "COMP SCI")
-- `--number`: Course number (e.g., "400")
-- `--section`: (Optional) Specific section to monitor
-- `--interval`: Check interval in seconds (default: 300)
-- `--notify-open`: Notify when seats become available
-- `--notify-waitlist`: Notify when waitlist opens
-
-#### List Active Monitors
-View all courses being monitored:
+### List Active Monitors
 ```bash
 python main.py list
 ```
 
-#### Remove Monitor
-Stop monitoring a course:
+### Remove Monitor
 ```bash
 python main.py remove <monitor_id>
 ```
 
-#### View History
-See enrollment history for a course:
+### View History
 ```bash
-python main.py history --subject "COMP SCI" --number 400 --limit 50
+python main.py history --subject "COMP SCI" --number 400
 ```
 
-#### Test Notifications
-Verify notification system is working:
+### Test Notifications
 ```bash
 python main.py test-notify
 ```
 
-### Programmatic Usage
+## ⚙️ Configuration
 
-You can also use the CourseChecker class programmatically:
-
-```python
-import asyncio
-from src.services.course_checker import CourseChecker
-
-async def main():
-    checker = CourseChecker()
-    await checker.initialize()
-
-    # Add a course to monitor
-    monitor_id = await checker.add_course(
-        term="1252",
-        subject="COMP SCI",
-        course_number="400",
-        notify_on_open=True,
-        check_interval=300
-    )
-
-    # Start monitoring
-    await checker.start()
-
-    # Keep running
-    try:
-        while True:
-            await asyncio.sleep(1)
-    except KeyboardInterrupt:
-        await checker.cleanup()
-
-asyncio.run(main())
-```
-
-## Configuration
-
-### Environment Variables
-
-Edit `.env` file with your configuration:
+Edit `.env` file:
 
 ```env
+# API - Uses uwcourses.com
+API_BASE_URL=https://static.uwcourses.com
+API_UPDATE_ENDPOINT=/update.json
+
 # Email Notifications
 EMAIL_ENABLED=true
-EMAIL_SMTP_HOST=smtp.gmail.com
-EMAIL_SMTP_PORT=587
 EMAIL_SMTP_USER=your_email@gmail.com
 EMAIL_SMTP_PASS=your_app_password
-EMAIL_FROM=noreply@example.com
 EMAIL_TO=student@wisc.edu
 
-# SMS Notifications (Twilio)
+# SMS (Optional)
 SMS_ENABLED=false
-TWILIO_ACCOUNT_SID=your_account_sid
-TWILIO_AUTH_TOKEN=your_auth_token
-TWILIO_PHONE_FROM=+1234567890
-TWILIO_PHONE_TO=+1234567890
-
-# Webhook
-WEBHOOK_ENABLED=false
-WEBHOOK_URL=https://your-webhook-url.com/notify
+TWILIO_ACCOUNT_SID=your_sid
+TWILIO_AUTH_TOKEN=your_token
 
 # Monitoring
 CHECK_INTERVAL=300  # seconds
-LOG_LEVEL=INFO
-
-# Database
 DATABASE_URL=sqlite:///./data/courses.db
-# Or for PostgreSQL:
-# DATABASE_URL=postgresql://user:password@localhost/courses
 ```
 
-### Email Setup (Gmail Example)
-
-1. Enable 2-factor authentication on your Google account
-2. Generate an App Password: https://myaccount.google.com/apppasswords
-3. Use the app password in `EMAIL_SMTP_PASS`
-
-## Architecture
+## 🏗️ Architecture
 
 ```
 backend/
 ├── src/
 │   ├── api/
-│   │   └── uw_madison_api.py       # UW Madison API client
+│   │   └── uw_madison_api.py    # API client with caching
 │   ├── database/
-│   │   ├── models.py                # SQLAlchemy models
-│   │   └── database.py              # Database operations
+│   │   ├── models.py             # SQLAlchemy models
+│   │   └── database.py           # Database operations
 │   ├── services/
-│   │   ├── course_checker.py        # Main monitoring service
-│   │   └── notification_service.py  # Notification handler
+│   │   ├── course_checker.py     # Monitoring service
+│   │   └── notification_service.py # Notifications
 │   ├── utils/
-│   │   └── logger.py                # Logging configuration
-│   ├── config.py                    # App configuration
-│   └── cli.py                       # Command-line interface
-├── data/                            # SQLite database (generated)
-├── logs/                            # Log files (generated)
-├── main.py                          # Entry point
-├── requirements.txt                 # Python dependencies
-└── setup.py                         # Package setup
+│   │   └── logger.py             # Logging
+│   ├── config.py                 # Settings
+│   └── cli.py                    # CLI commands
+├── main.py                       # Entry point
+├── test_api.py                   # API test script
+└── requirements.txt              # Dependencies
 ```
 
-## Technology Stack
+## 🔌 API Integration
+
+This backend uses `https://static.uwcourses.com/update.json`:
+- **No authentication required**
+- **Public access** for educational use
+- **Real-time data** on course enrollment
+- **Automatic caching** to minimize requests
+
+### Testing the API
+```bash
+python test_api.py
+```
+
+This will:
+1. Fetch data from the API
+2. Show available data structure
+3. Let you test specific course lookups
+
+## 📊 Database Schema
+
+### `course_monitors`
+- Course monitoring configuration
+- Check intervals and notification preferences
+- Active/inactive status
+
+### `enrollment_snapshots`
+- Historical enrollment data
+- Seat counts and waitlist info
+- Timestamps for trend analysis
+
+### `notifications`
+- Notification history
+- Success/failure tracking
+- Message details
+
+## 📧 Email Setup (Gmail)
+
+1. Enable 2FA on your Google account
+2. Generate App Password: https://myaccount.google.com/apppasswords
+3. Use in `.env`:
+```env
+EMAIL_SMTP_USER=your_email@gmail.com
+EMAIL_SMTP_PASS=your_16_char_app_password
+```
+
+## 🔧 Technology Stack
 
 - **Python 3.9+**: Core language
-- **httpx**: Async HTTP client for API requests
+- **httpx**: Async HTTP client
 - **SQLAlchemy 2.0**: Database ORM
 - **APScheduler**: Task scheduling
 - **Click**: CLI framework
-- **Pydantic**: Settings and validation
-- **Twilio**: SMS notifications
-- **smtplib**: Email notifications
+- **Pydantic**: Settings validation
+- **Twilio**: SMS (optional)
 
-## Database Schema
+## 📝 Example Usage
 
-### CourseMonitor
-Stores course monitoring configurations:
-- `id`, `term`, `subject`, `course_number`, `section_id`
-- `notify_on_open`, `notify_on_waitlist`
-- `check_interval`, `active`, `last_checked`
-
-### EnrollmentSnapshot
-Historical enrollment data:
-- `monitor_id`, `section_id`, `class_number`
-- `total_seats`, `enrolled_seats`, `open_seats`
-- `waitlist_total`, `waitlist_enrolled`, `waitlist_open`
-- `status`, `instructor`, `timestamp`
-
-### Notification
-Notification history:
-- `monitor_id`, `section_id`, `notification_type`
-- `message`, `sent_at`, `success`
-
-## Error Handling
-
-- **API Errors**: Automatic retry with exponential backoff
-- **Rate Limiting**: Respects API rate limits, queues requests
-- **Network Issues**: Graceful degradation, logged errors
-- **Database Errors**: Transaction rollback, error logging
-
-## Development
-
-### Running Tests
+### Monitor Multiple Sections
 ```bash
-# TODO: Add tests
-pytest
+python main.py add --term 1252 --subject "COMP SCI" --number 400 --section 001
+python main.py add --term 1252 --subject "COMP SCI" --number 400 --section 002
 ```
 
-### Code Style
+### Fast Checking for Popular Courses
 ```bash
-# Format code
-black src/
-isort src/
-
-# Lint code
-flake8 src/
-mypy src/
+python main.py add \
+  --term 1252 \
+  --subject "COMP SCI" \
+  --number 400 \
+  --interval 120  # Check every 2 minutes
 ```
 
-## Troubleshooting
+### Waitlist Only
+```bash
+python main.py add \
+  --term 1252 \
+  --subject "COMP SCI" \
+  --number 400 \
+  --no-notify-open \
+  --notify-waitlist
+```
 
-### Email not sending
-- Verify SMTP credentials
-- Check firewall/antivirus settings
-- Use app-specific password for Gmail
+## 🐛 Troubleshooting
 
-### Database locked errors
-- Only one process should write to SQLite at a time
-- Consider using PostgreSQL for concurrent access
+### Import Errors
+Make sure you're in the backend directory and have installed dependencies:
+```bash
+cd backend
+pip install -r requirements.txt
+```
 
-### Import errors
-- Ensure virtual environment is activated
-- Reinstall dependencies: `pip install -r requirements.txt`
+### Email Not Sending
+- Check `EMAIL_ENABLED=true` in `.env`
+- Verify Gmail app password
+- Test with: `python main.py test-notify`
 
-## License
+### Course Not Found
+- Verify term code (e.g., "1252" for Spring 2025)
+- Check exact subject spelling (e.g., "COMP SCI" not "CS")
+- Run `python test_api.py` to see available data
 
-MIT License - see LICENSE file for details
+### API Errors
+- Check internet connection
+- Verify API is accessible: `curl https://static.uwcourses.com/update.json`
+- Check logs in `logs/error.log`
 
-## Disclaimer
+## 📄 License
 
-This tool is for educational purposes and personal use. Always comply with UW Madison's terms of service and acceptable use policies. Use reasonable check intervals to avoid excessive API load.
+MIT License - Free for educational use
+
+## ⚠️ Disclaimer
+
+- Educational and personal use only
+- Respect API rate limits (max 60 req/min)
+- Use reasonable check intervals
+- Comply with UW Madison's terms of service
+- No excessive server load
+
+## 🤝 Contributing
+
+The codebase is modular and easy to extend:
+- Add notification channels in `notification_service.py`
+- Extend database schema in `models.py`
+- Add CLI commands in `cli.py`
+
+---
+
+**Built for UW Madison students** 🎓

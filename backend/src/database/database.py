@@ -46,12 +46,7 @@ class Database:
         notify_on_waitlist: bool = False,
         check_interval: int = 300
     ) -> int:
-        """
-        Add a new course monitor
-
-        Returns:
-            Monitor ID
-        """
+        """Add a new course monitor"""
         with self.get_session() as session:
             monitor = CourseMonitor(
                 term=term,
@@ -75,8 +70,6 @@ class Database:
             stmt = select(CourseMonitor).where(CourseMonitor.active == True)
             result = session.execute(stmt)
             monitors = result.scalars().all()
-
-            # Detach from session
             return [session.merge(m) for m in monitors]
 
     def get_course_monitor(self, monitor_id: int) -> Optional[CourseMonitor]:
@@ -85,7 +78,6 @@ class Database:
             stmt = select(CourseMonitor).where(CourseMonitor.id == monitor_id)
             result = session.execute(stmt)
             monitor = result.scalar_one_or_none()
-
             if monitor:
                 return session.merge(monitor)
             return None
@@ -96,7 +88,6 @@ class Database:
             stmt = select(CourseMonitor).where(CourseMonitor.id == monitor_id)
             result = session.execute(stmt)
             monitor = result.scalar_one_or_none()
-
             if monitor:
                 monitor.last_checked = datetime.now()
                 session.commit()
@@ -115,12 +106,7 @@ class Database:
         status: str,
         instructor: str
     ) -> int:
-        """
-        Save an enrollment snapshot
-
-        Returns:
-            Snapshot ID
-        """
+        """Save an enrollment snapshot"""
         with self.get_session() as session:
             snapshot = EnrollmentSnapshot(
                 monitor_id=monitor_id,
@@ -138,7 +124,6 @@ class Database:
             session.add(snapshot)
             session.commit()
             session.refresh(snapshot)
-
             return snapshot.id
 
     def get_latest_snapshot(
@@ -159,7 +144,6 @@ class Database:
             )
             result = session.execute(stmt)
             snapshot = result.scalar_one_or_none()
-
             if snapshot:
                 return session.merge(snapshot)
             return None
@@ -184,7 +168,6 @@ class Database:
             )
             result = session.execute(stmt)
             snapshots = result.scalars().all()
-
             return [session.merge(s) for s in snapshots]
 
     def save_notification(
@@ -195,12 +178,7 @@ class Database:
         message: str,
         success: bool = True
     ) -> int:
-        """
-        Save a notification record
-
-        Returns:
-            Notification ID
-        """
+        """Save a notification record"""
         with self.get_session() as session:
             notification = Notification(
                 monitor_id=monitor_id,
@@ -212,7 +190,6 @@ class Database:
             session.add(notification)
             session.commit()
             session.refresh(notification)
-
             return notification.id
 
     def deactivate_course_monitor(self, monitor_id: int):
@@ -221,7 +198,6 @@ class Database:
             stmt = select(CourseMonitor).where(CourseMonitor.id == monitor_id)
             result = session.execute(stmt)
             monitor = result.scalar_one_or_none()
-
             if monitor:
                 monitor.active = False
                 session.commit()
@@ -233,7 +209,6 @@ class Database:
             stmt = select(CourseMonitor).where(CourseMonitor.id == monitor_id)
             result = session.execute(stmt)
             monitor = result.scalar_one_or_none()
-
             if monitor:
                 session.delete(monitor)
                 session.commit()

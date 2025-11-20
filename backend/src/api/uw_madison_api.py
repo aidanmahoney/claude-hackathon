@@ -1,4 +1,4 @@
-"""UW Madison Course Search and Enroll API Client"""
+"""UW Madison Course Search API Client using uwcourses.com"""
 
 import asyncio
 import time
@@ -11,17 +11,20 @@ from src.utils.logger import logger
 
 
 class UWMadisonAPI:
-    """Client for UW Madison Course Search and Enroll API"""
+    """Client for UW Courses API - uses https://static.uwcourses.com/update.json"""
 
     def __init__(self):
         self.base_url = settings.api_base_url
+        self.update_endpoint = settings.api_update_endpoint
         self.timeout = settings.request_timeout
         self.max_requests = settings.rate_limit_requests
         self.window_size = settings.rate_limit_window
         self.request_window: List[float] = []
+        self.courses_cache: Optional[Dict[str, Any]] = None
+        self.cache_timestamp: Optional[float] = None
+        self.cache_ttl = 60  # Cache for 60 seconds
 
         self.client = httpx.AsyncClient(
-            base_url=self.base_url,
             timeout=self.timeout,
             headers={
                 "Accept": "application/json",
@@ -42,6 +45,38 @@ class UWMadisonAPI:
 
         self.request_window.append(now)
 
+    async def _fetch_courses_data(self) -> Dict[str, Any]:
+        """Fetch and cache courses data from uwcourses.com API"""
+        now = time.time()
+
+        # Return cached data if still valid
+        if (self.courses_cache is not None and
+            self.cache_timestamp is not None and
+            now - self.cache_timestamp < self.cache_ttl):
+            return self.courses_cache
+
+        try:
+            await self._check_rate_limit()
+
+            logger.debug("Fetching courses data from uwcourses.com API")
+
+            url = f"{self.base_url}{self.update_endpoint}"
+            response = await self.client.get(url)
+            response.raise_for_status()
+
+            data = response.json()
+
+            # Cache the response
+            self.courses_cache = data
+            self.cache_timestamp = now
+
+            logger.info(f"Fetched course data with {len(data)} keys")
+            return data
+
+        except Exception as e:
+            logger.error(f"Error fetching courses data: {e}")
+            raise
+
     async def get_enrollment_status(
         self,
         term: str,
@@ -60,125 +95,110 @@ class UWMadisonAPI:
             Dictionary containing enrollment data
         """
         try:
-            await self._check_rate_limit()
-
             logger.debug(f"Fetching enrollment for {subject} {course_number} (Term: {term})")
 
-            response = await self.client.get(
-                "/search/v1/courses",
-                params={
-                    "term": term,
-                    "subject": subject,
-                    "catalogNumber": course_number
-                }
-            )
-            response.raise_for_status()
+            # Fetch all courses data
+            data = await self._fetch_courses_data()
 
-            data = response.json()
-            return self._parse_enrollment_data(data)
+            # Search for the specific course
+            course_data = self._find_course(data, term, subject, course_number)
 
-        except httpx.HTTPStatusError as e:
-            if e.response.status_code == 429:
-                retry_after = int(e.response.headers.get("retry-after", 60))
-                logger.warning(f"Rate limited. Waiting {retry_after}s...")
-                await asyncio.sleep(retry_after)
-                return await self.get_enrollment_status(term, subject, course_number)
-            raise
+            if not course_data:
+                raise ValueError(f"Course {subject} {course_number} not found for term {term}")
+
+            return self._parse_enrollment_data(course_data, term, subject, course_number)
+
         except Exception as e:
             logger.error(f"Error fetching enrollment status: {e}")
             raise
 
-    async def get_section_details(self, term: str, section_id: str) -> Dict[str, Any]:
-        """
-        Get details for a specific section
+    def _find_course(
+        self,
+        data: Dict[str, Any],
+        term: str,
+        subject: str,
+        course_number: str
+    ) -> Optional[Dict[str, Any]]:
+        """Find a specific course in the API data"""
+        # The uwcourses.com API structure may vary
+        # Try multiple lookup strategies
 
-        Args:
-            term: Term code
-            section_id: Section ID
+        # Strategy 1: Check if data has a courses array
+        if "courses" in data:
+            for course in data["courses"]:
+                if (course.get("subject") == subject and
+                    str(course.get("catalogNumber", course.get("number", ""))) == str(course_number) and
+                    str(course.get("term", "")) == str(term)):
+                    return course
 
-        Returns:
-            Dictionary containing section data
-        """
-        try:
-            await self._check_rate_limit()
+        # Strategy 2: Direct lookup by key variations
+        for key_format in [
+            f"{subject}{course_number}",
+            f"{subject} {course_number}",
+            f"{subject.replace(' ', '')}{course_number}",
+            f"{term}:{subject}:{course_number}"
+        ]:
+            if key_format in data:
+                return data[key_format]
 
-            logger.debug(f"Fetching section details for {section_id} (Term: {term})")
+        # Strategy 3: Iterate through all keys looking for matches
+        for key, value in data.items():
+            if isinstance(value, dict):
+                if (value.get("subject") == subject and
+                    str(value.get("catalogNumber", value.get("number", ""))) == str(course_number)):
+                    return value
 
-            response = await self.client.get(f"/search/v1/sections/{term}/{section_id}")
-            response.raise_for_status()
+        return None
 
-            return response.json()
-
-        except Exception as e:
-            logger.error(f"Error fetching section details: {e}")
-            raise
-
-    async def search_courses(self, params: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """
-        Search for courses
-
-        Args:
-            params: Search parameters
-
-        Returns:
-            List of courses
-        """
-        try:
-            await self._check_rate_limit()
-
-            logger.debug(f"Searching courses with params: {params}")
-
-            response = await self.client.get("/search/v1/courses", params=params)
-            response.raise_for_status()
-
-            return response.json()
-
-        except Exception as e:
-            logger.error(f"Error searching courses: {e}")
-            raise
-
-    def _parse_enrollment_data(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Parse enrollment data from API response
-
-        Args:
-            data: Raw API response
-
-        Returns:
-            Parsed enrollment data
-        """
-        if not data or "courses" not in data or len(data["courses"]) == 0:
-            raise ValueError("No course data found")
-
-        course = data["courses"][0]
-        sections = course.get("sections", [])
+    def _parse_enrollment_data(
+        self,
+        course_data: Dict[str, Any],
+        term: str,
+        subject: str,
+        course_number: str
+    ) -> Dict[str, Any]:
+        """Parse enrollment data from API response"""
+        sections = course_data.get("sections", [])
 
         return {
-            "term": course.get("term"),
-            "subject": course.get("subject"),
-            "courseNumber": course.get("catalogNumber"),
-            "courseTitle": course.get("title"),
+            "term": term,
+            "subject": subject,
+            "courseNumber": course_number,
+            "courseTitle": course_data.get("title", course_data.get("name", f"{subject} {course_number}")),
             "sections": [self._parse_section(section) for section in sections]
         }
 
     def _parse_section(self, section: Dict[str, Any]) -> Dict[str, Any]:
-        """Parse section data"""
-        enrollment_capacity = section.get("enrollmentCapacity", 0)
-        enrollment_total = section.get("enrollmentTotal", 0)
-        waitlist_capacity = section.get("waitlistCapacity", 0)
-        waitlist_total = section.get("waitlistTotal", 0)
+        """Parse section data with flexible field names"""
+        # Support multiple field name variations
+        enrollment_capacity = section.get("enrollmentCapacity", section.get("max_enrollment", section.get("capacity", 0)))
+        enrollment_total = section.get("enrollmentTotal", section.get("current_enrollment", section.get("enrolled", 0)))
+        waitlist_capacity = section.get("waitlistCapacity", section.get("max_waitlist", 0))
+        waitlist_total = section.get("waitlistTotal", section.get("current_waitlist", section.get("waitlist", 0)))
 
         open_seats = max(0, enrollment_capacity - enrollment_total)
         waitlist_open = max(0, waitlist_capacity - waitlist_total)
 
-        instructors = section.get("instructors", [])
-        instructor_names = ", ".join([i.get("name", "") for i in instructors]) or "TBA"
+        # Parse instructor information
+        instructors = section.get("instructors", section.get("instructor", []))
+        if isinstance(instructors, str):
+            instructor_names = instructors
+        elif isinstance(instructors, list):
+            instructor_names = ", ".join([
+                i.get("name", i) if isinstance(i, dict) else str(i)
+                for i in instructors
+            ]) or "TBA"
+        else:
+            instructor_names = "TBA"
+
+        # Parse section identifier
+        section_id = section.get("number", section.get("section", section.get("sectionNumber", "Unknown")))
 
         return {
-            "sectionId": section.get("number"),
-            "classNumber": section.get("classNumber"),
+            "sectionId": str(section_id),
+            "classNumber": section.get("classNumber", section.get("class_number", section_id)),
             "instructor": instructor_names,
-            "schedule": section.get("schedules", []),
+            "schedule": section.get("schedules", section.get("schedule", [])),
             "totalSeats": enrollment_capacity,
             "enrolledSeats": enrollment_total,
             "openSeats": open_seats,
@@ -200,33 +220,27 @@ class UWMadisonAPI:
             return "CLOSED"
 
     async def get_current_term(self) -> str:
-        """
-        Get current term code
-
-        Returns:
-            Current term code
-        """
+        """Get current term code from API data"""
         try:
-            response = await self.client.get("/search/v1/terms")
-            response.raise_for_status()
+            data = await self._fetch_courses_data()
 
-            data = response.json()
-            terms = data.get("terms", [])
+            # Try to extract term from the data
+            if "term" in data:
+                return str(data["term"])
 
-            # Find current or next active term
-            now = datetime.now()
-            for term in terms:
-                start_date = datetime.fromisoformat(term.get("startDate", ""))
-                end_date = datetime.fromisoformat(term.get("endDate", ""))
-                if start_date <= now <= end_date:
-                    return term.get("code")
+            if "current_term" in data:
+                return str(data["current_term"])
 
-            # Fallback to first term
-            return terms[0].get("code") if terms else "1252"
+            # If courses array exists, get term from first course
+            if "courses" in data and len(data["courses"]) > 0:
+                return str(data["courses"][0].get("term", "1252"))
+
+            # Fallback to Spring 2025
+            return "1252"
 
         except Exception as e:
             logger.error(f"Error fetching current term: {e}")
-            return "1252"  # Fallback to Spring 2025
+            return "1252"
 
     async def close(self):
         """Close the HTTP client"""

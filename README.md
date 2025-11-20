@@ -62,12 +62,14 @@ This tool continuously monitors UW Madison course enrollment status and provides
 ### Component Details
 
 #### 1. API Integration Layer
-- **Endpoint**: UW Madison Course Search and Enroll API
-- **Base URL**: `https://public.enroll.wisc.edu/api`
+- **Endpoint**: UW Courses API
+- **Base URL**: `https://static.uwcourses.com`
 - **Key Endpoints**:
-  - `/search/v1/enrollmentStatus/{term}/{courseId}` - Get enrollment status
-  - `/search/v1/courses` - Search courses
-  - `/search/v1/sections/{sectionId}` - Get section details
+  - `/update.json` - Get real-time course enrollment data
+- **Features**:
+  - Automatic caching (60s TTL) to reduce API load
+  - Rate limiting protection
+  - Flexible data parsing for various response formats
 
 #### 2. Scheduler Service
 - Manages polling intervals (default: 2-5 minutes)
@@ -129,11 +131,11 @@ python main.py
 
 ```bash
 # API Configuration
-API_BASE_URL=https://public.enroll.wisc.edu/api
-API_KEY=your_api_key_here  # If required
-REQUEST_TIMEOUT=10000
+API_BASE_URL=https://static.uwcourses.com
+API_UPDATE_ENDPOINT=/update.json
+REQUEST_TIMEOUT=10
 RATE_LIMIT_REQUESTS=60
-RATE_LIMIT_WINDOW=60000
+RATE_LIMIT_WINDOW=60
 
 # Notification Settings
 EMAIL_ENABLED=true
@@ -232,49 +234,30 @@ checker.on('available', (courseData) => {
 await checker.stop();
 ```
 
-## UW Madison API Integration
+## UW Courses API Integration
 
 ### Authentication
-The UW Madison Course Search and Enroll API is publicly accessible for read-only course information. No authentication is required for basic enrollment status checks.
+The UW Courses API (`https://static.uwcourses.com`) is publicly accessible for read-only course information. No authentication is required.
 
 ### API Request Example
 
-```javascript
-const axios = require('axios');
+```python
+import httpx
 
-async function checkEnrollment(term, subject, courseNumber) {
-  const response = await axios.get(
-    `https://public.enroll.wisc.edu/api/search/v1/enrollmentStatus/${term}/${subject}/${courseNumber}`
-  );
+async def get_course_data():
+    async with httpx.AsyncClient() as client:
+        response = await client.get("https://static.uwcourses.com/update.json")
+        return response.json()
 
-  return {
-    totalSeats: response.data.totalSeats,
-    openSeats: response.data.openSeats,
-    waitlistSeats: response.data.waitlistSeats,
-    status: response.data.enrollmentStatus
-  };
-}
+# The API returns real-time enrollment data for all courses
+data = await get_course_data()
 ```
 
-### Response Format
-
-```json
-{
-  "subject": "COMP SCI",
-  "courseNumber": "400",
-  "sections": [
-    {
-      "sectionId": "001",
-      "totalSeats": 30,
-      "openSeats": 0,
-      "enrolledSeats": 30,
-      "waitlistTotal": 10,
-      "waitlistOpen": 2,
-      "enrollmentStatus": "CLOSED"
-    }
-  ]
-}
-```
+### Features
+- **Real-time Data**: Updated enrollment information
+- **No Authentication**: Public API, no keys required
+- **Caching**: Built-in 60-second cache to reduce API load
+- **Flexible Parsing**: Supports various response formats
 
 ### Rate Limiting
 - Recommended: Maximum 60 requests per minute

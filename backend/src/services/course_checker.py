@@ -2,8 +2,6 @@
 
 import asyncio
 from typing import Dict, Any, Optional
-from datetime import datetime
-
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 
@@ -38,30 +36,20 @@ class CourseChecker:
         self.is_running = True
         logger.info("Starting course monitoring...")
 
-        # Load all active monitors from database
         active_monitors = self.database.get_active_course_monitors()
 
         if not active_monitors:
             logger.warning("No active course monitors found. Add courses using the CLI.")
             return
 
-        # Set up monitoring for each course
         for monitor in active_monitors:
             await self.setup_monitor(monitor)
 
-        # Start the scheduler
         self.scheduler.start()
-
         logger.info(f"Monitoring {len(active_monitors)} course(s)")
 
     async def setup_monitor(self, monitor: CourseMonitor):
-        """
-        Set up monitoring for a specific course
-
-        Args:
-            monitor: Course monitor configuration
-        """
-        # Schedule periodic checks
+        """Set up monitoring for a specific course"""
         self.scheduler.add_job(
             self.check_course,
             trigger=IntervalTrigger(seconds=monitor.check_interval),
@@ -70,7 +58,6 @@ class CourseChecker:
             replace_existing=True
         )
 
-        # Do initial check immediately
         await self.check_course(monitor)
 
         logger.info(
@@ -79,28 +66,19 @@ class CourseChecker:
         )
 
     async def check_course(self, monitor: CourseMonitor):
-        """
-        Check a specific course for availability
-
-        Args:
-            monitor: Course monitor configuration
-        """
+        """Check a specific course for availability"""
         try:
             logger.debug(f"Checking {monitor.subject} {monitor.course_number}...")
 
-            # Fetch current enrollment data from API
             enrollment_data = await self.api.get_enrollment_status(
                 monitor.term,
                 monitor.subject,
                 monitor.course_number
             )
 
-            # Update last checked time
             self.database.update_last_checked(monitor.id)
 
-            # Process each section
             for section in enrollment_data["sections"]:
-                # If monitoring specific section, skip others
                 if monitor.section_id and section["sectionId"] != monitor.section_id:
                     continue
 
@@ -117,21 +95,12 @@ class CourseChecker:
         current_section: Dict[str, Any],
         course_data: Dict[str, Any]
     ):
-        """
-        Process a section and detect changes
-
-        Args:
-            monitor: Monitor configuration
-            current_section: Current section data
-            course_data: Full course data
-        """
-        # Get previous snapshot for comparison
+        """Process a section and detect changes"""
         previous_snapshot = self.database.get_latest_snapshot(
             monitor.id,
             current_section["sectionId"]
         )
 
-        # Save current snapshot
         self.database.save_enrollment_snapshot(
             monitor_id=monitor.id,
             section_id=current_section["sectionId"],
@@ -146,7 +115,6 @@ class CourseChecker:
             instructor=current_section["instructor"]
         )
 
-        # Detect changes and send notifications if needed
         if previous_snapshot:
             await self.detect_changes(monitor, previous_snapshot, current_section, course_data)
         else:
@@ -162,18 +130,9 @@ class CourseChecker:
         current: Dict[str, Any],
         course_data: Dict[str, Any]
     ):
-        """
-        Detect enrollment changes and trigger notifications
-
-        Args:
-            monitor: Monitor configuration
-            previous: Previous snapshot
-            current: Current section data
-            course_data: Full course data
-        """
+        """Detect enrollment changes and trigger notifications"""
         changes = []
 
-        # Detect status changes
         if previous.status != current["status"]:
             changes.append({
                 "type": "status",
@@ -181,7 +140,6 @@ class CourseChecker:
                 "to": current["status"]
             })
 
-        # Detect seat openings
         if previous.open_seats < current["openSeats"] and current["openSeats"] > 0:
             changes.append({
                 "type": "seats_opened",
@@ -189,7 +147,6 @@ class CourseChecker:
                 "current": current["openSeats"]
             })
 
-        # Detect waitlist openings
         if previous.waitlist_open < current["waitlistOpen"] and current["waitlistOpen"] > 0:
             changes.append({
                 "type": "waitlist_opened",
@@ -197,7 +154,6 @@ class CourseChecker:
                 "current": current["waitlistOpen"]
             })
 
-        # Process changes and send notifications
         for change in changes:
             await self.handle_change(monitor, current, course_data, change)
 
@@ -208,15 +164,7 @@ class CourseChecker:
         course_data: Dict[str, Any],
         change: Dict[str, Any]
     ):
-        """
-        Handle detected change and send notifications
-
-        Args:
-            monitor: Monitor configuration
-            section: Current section data
-            course_data: Full course data
-            change: Change details
-        """
+        """Handle detected change and send notifications"""
         logger.info(
             f"Change detected: {change['type']} for {monitor.subject} {monitor.course_number} "
             f"Section {section['sectionId']}"
@@ -224,7 +172,6 @@ class CourseChecker:
 
         should_notify = False
 
-        # Check notification preferences
         if change["type"] == "status" and change["to"] == "OPEN" and monitor.notify_on_open:
             should_notify = True
         elif change["type"] == "seats_opened" and monitor.notify_on_open:
@@ -234,13 +181,11 @@ class CourseChecker:
 
         if should_notify:
             try:
-                # Send notification
                 await self.notification_service.notify_course_available({
                     **course_data,
-                    "sections": [section]  # Only include the changed section
+                    "sections": [section]
                 })
 
-                # Log notification
                 self.database.save_notification(
                     monitor_id=monitor.id,
                     section_id=section["sectionId"],
@@ -269,12 +214,7 @@ class CourseChecker:
         notify_on_waitlist: bool = False,
         check_interval: int = 300
     ) -> int:
-        """
-        Add a new course to monitor
-
-        Returns:
-            Monitor ID
-        """
+        """Add a new course to monitor"""
         monitor_id = self.database.add_course_monitor(
             term=term,
             subject=subject,
@@ -285,7 +225,6 @@ class CourseChecker:
             check_interval=check_interval
         )
 
-        # If checker is running, set up monitor immediately
         if self.is_running:
             monitor = self.database.get_course_monitor(monitor_id)
             if monitor:
@@ -295,15 +234,12 @@ class CourseChecker:
 
     async def remove_course(self, monitor_id: int):
         """Remove course from monitoring"""
-        # Remove from scheduler if exists
         try:
             self.scheduler.remove_job(f"monitor_{monitor_id}")
         except Exception:
             pass
 
-        # Deactivate in database
         self.database.deactivate_course_monitor(monitor_id)
-
         logger.info(f"Course monitor {monitor_id} removed")
 
     async def check_once(
@@ -312,16 +248,9 @@ class CourseChecker:
         subject: str,
         course_number: str
     ) -> Dict[str, Any]:
-        """
-        Check a course once (manual check)
-
-        Returns:
-            Enrollment data
-        """
+        """Check a course once (manual check)"""
         logger.info(f"Manual check for {subject} {course_number} (Term: {term})")
-
         enrollment_data = await self.api.get_enrollment_status(term, subject, course_number)
-
         return enrollment_data
 
     def get_history(
@@ -340,7 +269,6 @@ class CourseChecker:
 
         logger.info("Stopping course monitoring...")
 
-        # Shutdown scheduler
         if self.scheduler.running:
             self.scheduler.shutdown(wait=False)
 
