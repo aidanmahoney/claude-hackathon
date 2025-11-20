@@ -9,7 +9,6 @@ class Settings(BaseSettings):
 
     # API Configuration - Using uwcourses.com API
     api_base_url: str = "https://static.uwcourses.com"
-    api_update_endpoint: str = "/update.json"
     request_timeout: int = 10
     rate_limit_requests: int = 60
     rate_limit_window: int = 60

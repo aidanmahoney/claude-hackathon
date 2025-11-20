@@ -11,17 +11,15 @@ from src.utils.logger import logger
 
 
 class UWMadisonAPI:
-    """Client for UW Courses API - uses https://static.uwcourses.com/update.json"""
+    """Client for UW Courses API - uses https://static.uwcourses.com/course/{SUBJECT}_{NUMBER}.json"""
 
     def __init__(self):
         self.base_url = settings.api_base_url
-        self.update_endpoint = settings.api_update_endpoint
         self.timeout = settings.request_timeout
         self.max_requests = settings.rate_limit_requests
         self.window_size = settings.rate_limit_window
         self.request_window: List[float] = []
-        self.courses_cache: Optional[Dict[str, Any]] = None
-        self.cache_timestamp: Optional[float] = None
+        self.cache: Dict[str, Any] = {}  # Cache for individual courses
         self.cache_ttl = 60  # Cache for 60 seconds
 
         self.client = httpx.AsyncClient(
@@ -45,36 +43,44 @@ class UWMadisonAPI:
 
         self.request_window.append(now)
 
-    async def _fetch_courses_data(self) -> Dict[str, Any]:
-        """Fetch and cache courses data from uwcourses.com API"""
+    async def _fetch_course_data(self, subject: str, course_number: str) -> Dict[str, Any]:
+        """Fetch course data from uwcourses.com API"""
+        # Normalize subject - remove spaces (e.g., "COMP SCI" -> "COMPSCI")
+        normalized_subject = subject.replace(" ", "").upper()
+        cache_key = f"{normalized_subject}_{course_number}"
+
         now = time.time()
 
         # Return cached data if still valid
-        if (self.courses_cache is not None and
-            self.cache_timestamp is not None and
-            now - self.cache_timestamp < self.cache_ttl):
-            return self.courses_cache
+        if cache_key in self.cache:
+            cached_data, cache_time = self.cache[cache_key]
+            if now - cache_time < self.cache_ttl:
+                return cached_data
 
         try:
             await self._check_rate_limit()
 
-            logger.debug("Fetching courses data from uwcourses.com API")
+            logger.debug(f"Fetching course data for {normalized_subject} {course_number}")
 
-            url = f"{self.base_url}{self.update_endpoint}"
+            url = f"{self.base_url}/course/{normalized_subject}_{course_number}.json"
             response = await self.client.get(url)
             response.raise_for_status()
 
             data = response.json()
 
             # Cache the response
-            self.courses_cache = data
-            self.cache_timestamp = now
+            self.cache[cache_key] = (data, now)
 
-            logger.info(f"Fetched course data with {len(data)} keys")
+            logger.info(f"Fetched course data for {normalized_subject} {course_number}")
             return data
 
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 404:
+                raise ValueError(f"Course {subject} {course_number} not found")
+            logger.error(f"Error fetching course data: {e}")
+            raise
         except Exception as e:
-            logger.error(f"Error fetching courses data: {e}")
+            logger.error(f"Error fetching course data: {e}")
             raise
 
     async def get_enrollment_status(
@@ -85,6 +91,9 @@ class UWMadisonAPI:
     ) -> Dict[str, Any]:
         """
         Get enrollment status for a course
+
+        NOTE: The uwcourses.com API provides historical grade data and course metadata,
+        but NOT real-time seat availability. This method generates mock enrollment data.
 
         Args:
             term: Term code (e.g., "1252")
@@ -97,14 +106,12 @@ class UWMadisonAPI:
         try:
             logger.debug(f"Fetching enrollment for {subject} {course_number} (Term: {term})")
 
-            # Fetch all courses data
-            data = await self._fetch_courses_data()
+            # Fetch course data from the API
+            course_data = await self._fetch_course_data(subject, course_number)
 
-            # Search for the specific course
-            course_data = self._find_course(data, term, subject, course_number)
-
-            if not course_data:
-                raise ValueError(f"Course {subject} {course_number} not found for term {term}")
+            # Check if the term exists in the course data
+            if term not in course_data.get("term_data", {}):
+                logger.warning(f"Term {term} not found for {subject} {course_number}, using mock data")
 
             return self._parse_enrollment_data(course_data, term, subject, course_number)
 
@@ -112,43 +119,6 @@ class UWMadisonAPI:
             logger.error(f"Error fetching enrollment status: {e}")
             raise
 
-    def _find_course(
-        self,
-        data: Dict[str, Any],
-        term: str,
-        subject: str,
-        course_number: str
-    ) -> Optional[Dict[str, Any]]:
-        """Find a specific course in the API data"""
-        # The uwcourses.com API structure may vary
-        # Try multiple lookup strategies
-
-        # Strategy 1: Check if data has a courses array
-        if "courses" in data:
-            for course in data["courses"]:
-                if (course.get("subject") == subject and
-                    str(course.get("catalogNumber", course.get("number", ""))) == str(course_number) and
-                    str(course.get("term", "")) == str(term)):
-                    return course
-
-        # Strategy 2: Direct lookup by key variations
-        for key_format in [
-            f"{subject}{course_number}",
-            f"{subject} {course_number}",
-            f"{subject.replace(' ', '')}{course_number}",
-            f"{term}:{subject}:{course_number}"
-        ]:
-            if key_format in data:
-                return data[key_format]
-
-        # Strategy 3: Iterate through all keys looking for matches
-        for key, value in data.items():
-            if isinstance(value, dict):
-                if (value.get("subject") == subject and
-                    str(value.get("catalogNumber", value.get("number", ""))) == str(course_number)):
-                    return value
-
-        return None
 
     def _parse_enrollment_data(
         self,
@@ -157,55 +127,68 @@ class UWMadisonAPI:
         subject: str,
         course_number: str
     ) -> Dict[str, Any]:
-        """Parse enrollment data from API response"""
-        sections = course_data.get("sections", [])
+        """Parse enrollment data from API response and generate mock sections"""
+        course_title = course_data.get("course_title", f"{subject} {course_number}")
+
+        # Get term-specific data if available
+        term_data = course_data.get("term_data", {}).get(term, {})
+        enrollment_data = term_data.get("enrollment_data", {})
+
+        # Generate mock sections based on enrollment data or create default ones
+        sections = []
+
+        if enrollment_data and enrollment_data.get("instructors"):
+            # Create a section for each instructor
+            instructors = enrollment_data.get("instructors", {})
+            for idx, (instructor_name, email) in enumerate(instructors.items(), start=1):
+                section_id = f"{idx:03d}"
+                sections.append(self._create_mock_section(section_id, instructor_name, idx))
+        else:
+            # Create default mock sections
+            sections.append(self._create_mock_section("001", "TBA", 1))
+            sections.append(self._create_mock_section("002", "TBA", 2))
 
         return {
             "term": term,
             "subject": subject,
             "courseNumber": course_number,
-            "courseTitle": course_data.get("title", course_data.get("name", f"{subject} {course_number}")),
-            "sections": [self._parse_section(section) for section in sections]
+            "courseTitle": course_title,
+            "sections": sections
         }
 
-    def _parse_section(self, section: Dict[str, Any]) -> Dict[str, Any]:
-        """Parse section data with flexible field names"""
-        # Support multiple field name variations
-        enrollment_capacity = section.get("enrollmentCapacity", section.get("max_enrollment", section.get("capacity", 0)))
-        enrollment_total = section.get("enrollmentTotal", section.get("current_enrollment", section.get("enrolled", 0)))
-        waitlist_capacity = section.get("waitlistCapacity", section.get("max_waitlist", 0))
-        waitlist_total = section.get("waitlistTotal", section.get("current_waitlist", section.get("waitlist", 0)))
+    def _create_mock_section(self, section_id: str, instructor: str, seed: int) -> Dict[str, Any]:
+        """
+        Create mock section data with randomized enrollment numbers
 
-        open_seats = max(0, enrollment_capacity - enrollment_total)
-        waitlist_open = max(0, waitlist_capacity - waitlist_total)
+        NOTE: This is MOCK DATA because the uwcourses.com API doesn't provide real-time enrollment.
+        For production use, you need to integrate with the official UW Madison enrollment API.
+        """
+        import random
+        random.seed(seed + int(time.time()) % 100)  # Semi-random based on time
 
-        # Parse instructor information
-        instructors = section.get("instructors", section.get("instructor", []))
-        if isinstance(instructors, str):
-            instructor_names = instructors
-        elif isinstance(instructors, list):
-            instructor_names = ", ".join([
-                i.get("name", i) if isinstance(i, dict) else str(i)
-                for i in instructors
-            ]) or "TBA"
-        else:
-            instructor_names = "TBA"
+        # Generate realistic enrollment numbers
+        total_seats = random.choice([30, 40, 50, 100, 150, 200])
+        enrolled_seats = random.randint(int(total_seats * 0.7), total_seats)
+        open_seats = max(0, total_seats - enrolled_seats)
 
-        # Parse section identifier
-        section_id = section.get("number", section.get("section", section.get("sectionNumber", "Unknown")))
+        waitlist_total = random.choice([0, 10, 20, 30])
+        waitlist_enrolled = random.randint(0, waitlist_total) if waitlist_total > 0 else 0
+        waitlist_open = max(0, waitlist_total - waitlist_enrolled)
+
+        status = self._determine_status(open_seats, waitlist_open)
 
         return {
-            "sectionId": str(section_id),
-            "classNumber": section.get("classNumber", section.get("class_number", section_id)),
-            "instructor": instructor_names,
-            "schedule": section.get("schedules", section.get("schedule", [])),
-            "totalSeats": enrollment_capacity,
-            "enrolledSeats": enrollment_total,
+            "sectionId": section_id,
+            "classNumber": f"1{random.randint(1000, 9999)}",
+            "instructor": instructor,
+            "schedule": [],
+            "totalSeats": total_seats,
+            "enrolledSeats": enrolled_seats,
             "openSeats": open_seats,
-            "waitlistTotal": waitlist_capacity,
-            "waitlistEnrolled": waitlist_total,
+            "waitlistTotal": waitlist_total,
+            "waitlistEnrolled": waitlist_enrolled,
             "waitlistOpen": waitlist_open,
-            "status": self._determine_status(open_seats, waitlist_open),
+            "status": status,
             "lastUpdated": datetime.now().isoformat()
         }
 
@@ -220,27 +203,11 @@ class UWMadisonAPI:
             return "CLOSED"
 
     async def get_current_term(self) -> str:
-        """Get current term code from API data"""
-        try:
-            data = await self._fetch_courses_data()
-
-            # Try to extract term from the data
-            if "term" in data:
-                return str(data["term"])
-
-            if "current_term" in data:
-                return str(data["current_term"])
-
-            # If courses array exists, get term from first course
-            if "courses" in data and len(data["courses"]) > 0:
-                return str(data["courses"][0].get("term", "1252"))
-
-            # Fallback to Spring 2025
-            return "1252"
-
-        except Exception as e:
-            logger.error(f"Error fetching current term: {e}")
-            return "1252"
+        """Get current term code"""
+        # The uwcourses.com API doesn't provide current term info
+        # Default to Spring 2025 (term code 1252)
+        # In production, this should be dynamically determined or configured
+        return "1252"
 
     async def close(self):
         """Close the HTTP client"""
