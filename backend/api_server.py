@@ -352,15 +352,51 @@ async def get_notification_preferences():
 
 @app.put("/api/preferences/notifications", response_model=NotificationPreferences)
 async def update_notification_preferences(preferences: NotificationPreferences):
-    """
-    Update notification preferences
+    """Update notification preferences and save to .env file"""
+    from pathlib import Path
 
-    NOTE: This currently only returns the preferences.
-    To persist changes, update the .env file manually.
-    """
-    # In a production app, you would save these to a database
-    # For now, we just return what was sent
+    env_path = Path(__file__).parent / ".env"
+
+    if env_path.exists():
+        with open(env_path, 'r') as f:
+            lines = f.readlines()
+
+        # Update email settings
+        if preferences.email:
+            lines = _update_env_line(lines, "EMAIL_ENABLED", str(preferences.email.enabled).lower())
+            if preferences.email.address:
+                lines = _update_env_line(lines, "EMAIL_TO", preferences.email.address)
+                lines = _update_env_line(lines, "EMAIL_FROM", preferences.email.address)
+
+        # Update SMS settings
+        if preferences.sms:
+            lines = _update_env_line(lines, "SMS_ENABLED", str(preferences.sms.enabled).lower())
+            if preferences.sms.phoneNumber:
+                lines = _update_env_line(lines, "TWILIO_PHONE_TO", preferences.sms.phoneNumber)
+
+        # Update webhook settings
+        if preferences.webhook:
+            lines = _update_env_line(lines, "WEBHOOK_ENABLED", str(preferences.webhook.enabled).lower())
+            if preferences.webhook.url:
+                lines = _update_env_line(lines, "WEBHOOK_URL", preferences.webhook.url)
+
+        with open(env_path, 'w') as f:
+            f.writelines(lines)
+
     return preferences
+
+
+def _update_env_line(lines: list, key: str, value: str) -> list:
+    """Update or add a line in .env file"""
+    updated = False
+    for i, line in enumerate(lines):
+        if line.strip().startswith(f"{key}="):
+            lines[i] = f"{key}={value}\n"
+            updated = True
+            break
+    if not updated:
+        lines.append(f"{key}={value}\n")
+    return lines
 
 
 @app.post("/api/notifications/test", response_model=TestNotificationResponse)
@@ -369,7 +405,16 @@ async def test_notification(request: dict):
     notification_type = request.get("type", "email")
 
     try:
-        await course_checker.notification_service.test_notifications()
+        # Reload settings from .env before testing
+        from importlib import reload
+        from src import config
+        reload(config)
+
+        # Recreate notification service with new settings
+        from src.services.notification_service import NotificationService
+        test_service = NotificationService()
+
+        await test_service.test_notifications()
         return TestNotificationResponse(
             success=True,
             message=f"Test notification sent via {notification_type}"
